@@ -1,0 +1,201 @@
+import pool from "../config/db.js";
+import fs from "fs";
+import path from "path";
+
+/**
+ * GET /api/provider/profile
+ */
+export const getProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [[userRows]] = await pool.query(
+      `SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status,
+              p.id AS provider_id, p.bio, p.address, p.latitude, p.longitude, p.verified, p.created_at as provider_created_at
+       FROM users u
+       LEFT JOIN provider_profiles p ON p.user_id = u.id
+       WHERE u.id = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (!userRows || Object.keys(userRows).length === 0) return res.status(404).json({ message: "Profil introuvable" });
+
+    res.json({ profile: userRows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+/**
+ * PUT /api/provider/profile
+ * Body: { name, phone, bio, address }
+ */
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { name, phone, bio, address } = req.body;
+
+    // Transaction courte : update users puis provider_profiles
+    await pool.query(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name || null, phone || null, userId]);
+
+    // Create provider_profiles row if not exists
+    const [profiles] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (profiles.length === 0) {
+      await pool.query(`INSERT INTO provider_profiles (user_id, bio, address) VALUES (?, ?, ?)`, [userId, bio || null, address || null]);
+    } else {
+      await pool.query(`UPDATE provider_profiles SET bio = ?, address = ? WHERE user_id = ?`, [bio || null, address || null, userId]);
+    }
+
+    const [[updated]] = await pool.query(
+      `SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status,
+              p.id AS provider_id, p.bio, p.address, p.latitude, p.longitude, p.verified
+       FROM users u
+       LEFT JOIN provider_profiles p ON p.user_id = u.id
+       WHERE u.id = ? LIMIT 1`,
+      [userId]
+    );
+
+    res.json({ message: "Profil mis à jour", profile: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+/**
+ * PUT /api/provider/profile/location
+ * Body: { latitude, longitude, address }
+ */
+export const updateLocation = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { latitude, longitude, address } = req.body;
+
+    // Ensure profile exists
+    const [profiles] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (profiles.length === 0) {
+      await pool.query(`INSERT INTO provider_profiles (user_id, latitude, longitude, address) VALUES (?, ?, ?, ?)`, [userId, latitude || null, longitude || null, address || null]);
+    } else {
+      await pool.query(`UPDATE provider_profiles SET latitude = ?, longitude = ?, address = ? WHERE user_id = ?`, [latitude || null, longitude || null, address || null, userId]);
+    }
+
+    const [[updated]] = await pool.query(
+      `SELECT p.id AS provider_id, p.latitude, p.longitude, p.address, p.verified FROM provider_profiles p WHERE p.user_id = ? LIMIT 1`,
+      [userId]
+    );
+
+    res.json({ message: "Localisation mise à jour", provider_profile: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+/**
+ * POST /api/provider/documents
+ * multipart/form-data => field 'type' (e.g. 'CNI','diplome') and file 'file'
+ */
+export const uploadDocument = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const providerIdRow = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    const providerRows = providerIdRow[0];
+    let providerId;
+    if (providerRows.length === 0) {
+      // create profile if absent
+      const [ins] = await pool.query(`INSERT INTO provider_profiles(user_id) VALUES (?)`, [userId]);
+      providerId = ins.insertId;
+    } else {
+      providerId = providerRows[0].id;
+    }
+
+    if (!req.file) return res.status(400).json({ message: "Fichier manquant" });
+    const fileUrl = `/uploads/documents/${req.file.filename}`; // path relatif (adapter en prod)
+
+    const { type } = req.body;
+
+    const [result] = await pool.query(
+      `INSERT INTO documents (provider_id, type, file_url, status) VALUES (?, ?, ?, 'pending')`,
+      [providerId, type || "document", fileUrl]
+    );
+
+    res.status(201).json({
+      message: "Document envoyé, en attente de validation",
+      document: {
+        id: result.insertId,
+        provider_id: providerId,
+        type: type || "document",
+        file_url: fileUrl,
+        status: "pending"
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur upload document" });
+  }
+};
+
+/**
+ * GET /api/provider/documents
+ */
+export const listDocuments = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [[profile]] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (!profile) return res.json({ documents: [] });
+
+    const [docs] = await pool.query(`SELECT id, type, file_url, status, created_at FROM documents WHERE provider_id = ? ORDER BY created_at DESC`, [profile.id]);
+    res.json({ documents: docs });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur récupération documents" });
+  }
+};
+
+/**
+ * DELETE /api/provider/documents/:id
+ */
+export const deleteDocument = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const docId = req.params.id;
+
+    const [[profile]] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (!profile) return res.status(404).json({ message: "Profil prestataire introuvable" });
+
+    const [docs] = await pool.query(`SELECT file_url FROM documents WHERE id = ? AND provider_id = ? LIMIT 1`, [docId, profile.id]);
+    if (docs.length === 0) return res.status(404).json({ message: "Document introuvable" });
+
+    const fileUrl = docs[0].file_url;
+    // Supprimer de la base
+    await pool.query(`DELETE FROM documents WHERE id = ? AND provider_id = ?`, [docId, profile.id]);
+
+    // Supprimer le fichier physique si présent
+    try {
+      const filePath = path.join(process.cwd(), fileUrl);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {
+      console.warn("Impossible de supprimer le fichier physique:", e.message);
+    }
+
+    res.json({ message: "Document supprimé" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur suppression document" });
+  }
+};
+
+/**
+ * GET /api/provider/status
+ */
+export const getVerificationStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [[profile]] = await pool.query(`SELECT verified FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (!profile) return res.status(404).json({ message: "Profil introuvable" });
+    res.json({ verified: profile.verified });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
