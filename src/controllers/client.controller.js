@@ -1,5 +1,5 @@
 // src/controllers/client.controller.js
-import { db } from "../config/db.js";
+import db from "../config/db.js";
 import fs from "fs";
 import path from "path";
 
