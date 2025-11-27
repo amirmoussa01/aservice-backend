@@ -35,31 +35,60 @@ export const updateClientProfile = async (req, res) => {
     const userId = req.user.id;
     const { name, email, phone } = req.body;
 
-    // Vérifier email unique si modifié
-    if (email) {
-      const [existing] = await db.query("SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1", [email, userId]);
+    // Récupérer l'ancien profil
+    const [currentRows] = await db.query(
+      "SELECT name, email, phone FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+
+    if (currentRows.length === 0) {
+      return res.status(404).json({ message: "Utilisateur introuvable." });
+    }
+
+    const current = currentRows[0];
+
+    // ⚠️ Vérifier email unique SI email est envoyé
+    if (email !== undefined) {
+      const [existing] = await db.query(
+        "SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1",
+        [email, userId]
+      );
+
       if (existing.length > 0) {
-        return res.status(400).json({ message: "Cet email est déjà utilisé par un autre compte." });
+        return res.status(400).json({
+          message: "Cet email est déjà utilisé par un autre compte."
+        });
       }
     }
 
-    // Mise à jour
-    await db.query("UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?", [
-      name || null,
-      email || null,
-      phone || null,
-      userId,
-    ]);
+    // 🛠 Ne modifier que les champs envoyés
+    const newName = name ?? current.name;
+    const newEmail = email ?? current.email;
+    const newPhone = phone ?? current.phone;
+
+    // Mise à jour sécurisée
+    await db.query(
+      "UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?",
+      [newName, newEmail, newPhone, userId]
+    );
 
     // Récupérer le profil mis à jour
-    const [rows] = await db.query("SELECT id, name, email, phone, avatar, status, created_at FROM users WHERE id = ? LIMIT 1", [userId]);
+    const [rows] = await db.query(
+      "SELECT id, name, email, phone, avatar, status, created_at FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
 
-    return res.json({ message: "Profil mis à jour", profile: rows[0] });
+    return res.json({
+      message: "Profil mis à jour",
+      profile: rows[0]
+    });
+
   } catch (err) {
     console.error("updateClientProfile:", err);
     return res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
 
 /**
  * POST /api/client/avatar
