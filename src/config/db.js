@@ -3,8 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Connexion au serveur + base déjà créée par database.js
-const pool = mysql.createPool({
+export const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
@@ -14,4 +13,5 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
+// Export par défaut pour ceux qui utilisent "import db from ..."
 export default pool;

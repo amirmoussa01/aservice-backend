@@ -1,4 +1,4 @@
-import db from "../config/db.js";
+import {pool} from "../config/db.js";
 import bcrypt from "bcryptjs";
 import { generateToken } from "../utils/jwt.js";
 
