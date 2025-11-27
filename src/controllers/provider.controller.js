@@ -35,17 +35,49 @@ export const updateProfile = async (req, res) => {
     const userId = req.user.id;
     const { name, phone, bio, address } = req.body;
 
-    // Transaction courte : update users puis provider_profiles
-    await pool.query(`UPDATE users SET name = ?, phone = ? WHERE id = ?`, [name || null, phone || null, userId]);
+    // 1️⃣ Récuperer les valeurs actuelles
+    const [[currentUser]] = await pool.query(
+      "SELECT name, phone FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
 
-    // Create provider_profiles row if not exists
-    const [profiles] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
-    if (profiles.length === 0) {
-      await pool.query(`INSERT INTO provider_profiles (user_id, bio, address) VALUES (?, ?, ?)`, [userId, bio || null, address || null]);
-    } else {
-      await pool.query(`UPDATE provider_profiles SET bio = ?, address = ? WHERE user_id = ?`, [bio || null, address || null, userId]);
+    if (!currentUser) {
+      return res.status(404).json({ message: "Utilisateur introuvable." });
     }
 
+    const [[currentProvider]] = await pool.query(
+      "SELECT bio, address FROM provider_profiles WHERE user_id = ? LIMIT 1",
+      [userId]
+    );
+
+    // Valeurs actuelles ou nouvelles valeurs envoyées
+    const newName = name ?? currentUser.name;
+    const newPhone = phone ?? currentUser.phone;
+    const newBio = bio ?? (currentProvider ? currentProvider.bio : null);
+    const newAddress = address ?? (currentProvider ? currentProvider.address : null);
+
+    // Mise à jour users
+    await pool.query(
+      `UPDATE users SET name = ?, phone = ? WHERE id = ?`,
+      [newName, newPhone, userId]
+    );
+
+    //  Mise à jour provider_profiles (création si inexistant)
+    if (!currentProvider) {
+      await pool.query(
+        `INSERT INTO provider_profiles (user_id, bio, address)
+         VALUES (?, ?, ?)`,
+        [userId, newBio, newAddress]
+      );
+    } else {
+      await pool.query(
+        `UPDATE provider_profiles SET bio = ?, address = ?
+         WHERE user_id = ?`,
+        [newBio, newAddress, userId]
+      );
+    }
+
+    //  Relecture du profil complet
     const [[updated]] = await pool.query(
       `SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status,
               p.id AS provider_id, p.bio, p.address, p.latitude, p.longitude, p.verified
@@ -55,12 +87,17 @@ export const updateProfile = async (req, res) => {
       [userId]
     );
 
-    res.json({ message: "Profil mis à jour", profile: updated });
+    return res.json({
+      message: "Profil mis à jour",
+      profile: updated
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Erreur serveur" });
+    console.error("updateProfile error:", err);
+    return res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
 
 /**
  * PUT /api/provider/profile/location
