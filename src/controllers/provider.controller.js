@@ -8,18 +8,24 @@ import path from "path";
 export const getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
+
     const [[userRows]] = await pool.query(
-      `SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status,
-              p.id AS provider_id, p.bio, p.address, p.latitude, p.longitude, p.verified, p.created_at as provider_created_at
+      `SELECT 
+        u.id, u.name, u.email, u.phone, u.avatar, u.status,
+        p.id AS provider_id, p.bio, p.address, p.formatted_address, 
+        p.specialty, p.latitude, p.longitude, p.verified, p.created_at AS provider_created_at
        FROM users u
        LEFT JOIN provider_profiles p ON p.user_id = u.id
        WHERE u.id = ? LIMIT 1`,
       [userId]
     );
 
-    if (!userRows || Object.keys(userRows).length === 0) return res.status(404).json({ message: "Profil introuvable" });
+    if (!userRows) {
+      return res.status(404).json({ message: "Profil introuvable" });
+    }
 
     res.json({ profile: userRows });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Erreur serveur" });
@@ -33,54 +39,64 @@ export const getProfile = async (req, res) => {
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phone, bio, address } = req.body;
 
-    // 1️⃣ Récuperer les valeurs actuelles
+    const { 
+      name, phone, bio, address, formatted_address, specialty 
+    } = req.body;
+
+    // 1️⃣ Récupérer user
     const [[currentUser]] = await pool.query(
       "SELECT name, phone FROM users WHERE id = ? LIMIT 1",
       [userId]
     );
 
-    if (!currentUser) {
-      return res.status(404).json({ message: "Utilisateur introuvable." });
-    }
+    if (!currentUser) return res.status(404).json({ message: "Utilisateur introuvable." });
 
+    // 2️⃣ Récupérer provider profile
     const [[currentProvider]] = await pool.query(
-      "SELECT bio, address FROM provider_profiles WHERE user_id = ? LIMIT 1",
+      `SELECT bio, address, formatted_address, specialty 
+       FROM provider_profiles WHERE user_id = ? LIMIT 1`,
       [userId]
     );
 
-    // Valeurs actuelles ou nouvelles valeurs envoyées
+    // 3️⃣ Merge des valeurs
     const newName = name ?? currentUser.name;
     const newPhone = phone ?? currentUser.phone;
-    const newBio = bio ?? (currentProvider ? currentProvider.bio : null);
-    const newAddress = address ?? (currentProvider ? currentProvider.address : null);
 
-    // Mise à jour users
+    const newBio = bio ?? currentProvider?.bio ?? null;
+    const newAddress = address ?? currentProvider?.address ?? null;
+    const newFormattedAddress = formatted_address ?? currentProvider?.formatted_address ?? null;
+    const newSpecialty = specialty ?? currentProvider?.specialty ?? null;
+
+    // 4️⃣ Update users
     await pool.query(
       `UPDATE users SET name = ?, phone = ? WHERE id = ?`,
       [newName, newPhone, userId]
     );
 
-    //  Mise à jour provider_profiles (création si inexistant)
+    // 5️⃣ Update / Insert provider profile
     if (!currentProvider) {
       await pool.query(
-        `INSERT INTO provider_profiles (user_id, bio, address)
-         VALUES (?, ?, ?)`,
-        [userId, newBio, newAddress]
+        `INSERT INTO provider_profiles 
+         (user_id, bio, address, formatted_address, specialty) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, newBio, newAddress, newFormattedAddress, newSpecialty]
       );
     } else {
       await pool.query(
-        `UPDATE provider_profiles SET bio = ?, address = ?
+        `UPDATE provider_profiles 
+         SET bio = ?, address = ?, formatted_address = ?, specialty = ?
          WHERE user_id = ?`,
-        [newBio, newAddress, userId]
+        [newBio, newAddress, newFormattedAddress, newSpecialty, userId]
       );
     }
 
-    //  Relecture du profil complet
+    // 6️⃣ Retourner profil mis à jour
     const [[updated]] = await pool.query(
-      `SELECT u.id, u.name, u.email, u.phone, u.avatar, u.status,
-              p.id AS provider_id, p.bio, p.address, p.latitude, p.longitude, p.verified
+      `SELECT 
+        u.id, u.name, u.email, u.phone, u.avatar, u.status,
+        p.id AS provider_id, p.bio, p.address, p.formatted_address,
+        p.specialty, p.latitude, p.longitude, p.verified
        FROM users u
        LEFT JOIN provider_profiles p ON p.user_id = u.id
        WHERE u.id = ? LIMIT 1`,
@@ -106,27 +122,49 @@ export const updateProfile = async (req, res) => {
 export const updateLocation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { latitude, longitude, address } = req.body;
 
-    // Ensure profile exists
-    const [profiles] = await pool.query(`SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`, [userId]);
-    if (profiles.length === 0) {
-      await pool.query(`INSERT INTO provider_profiles (user_id, latitude, longitude, address) VALUES (?, ?, ?, ?)`, [userId, latitude || null, longitude || null, address || null]);
-    } else {
-      await pool.query(`UPDATE provider_profiles SET latitude = ?, longitude = ?, address = ? WHERE user_id = ?`, [latitude || null, longitude || null, address || null, userId]);
-    }
+    const { latitude, longitude, address, formatted_address } = req.body;
 
-    const [[updated]] = await pool.query(
-      `SELECT p.id AS provider_id, p.latitude, p.longitude, p.address, p.verified FROM provider_profiles p WHERE p.user_id = ? LIMIT 1`,
+    // Vérifier si profil existe
+    const [profiles] = await pool.query(
+      `SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`,
       [userId]
     );
 
-    res.json({ message: "Localisation mise à jour", provider_profile: updated });
+    if (profiles.length === 0) {
+      await pool.query(
+        `INSERT INTO provider_profiles 
+         (user_id, latitude, longitude, address, formatted_address)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, latitude, longitude, address, formatted_address]
+      );
+    } else {
+      await pool.query(
+        `UPDATE provider_profiles 
+         SET latitude = ?, longitude = ?, address = ?, formatted_address = ?
+         WHERE user_id = ?`,
+        [latitude, longitude, address, formatted_address, userId]
+      );
+    }
+
+    const [[updated]] = await pool.query(
+      `SELECT id AS provider_id, latitude, longitude, address, formatted_address, verified
+       FROM provider_profiles
+       WHERE user_id = ? LIMIT 1`,
+      [userId]
+    );
+
+    res.json({
+      message: "Localisation mise à jour",
+      provider_profile: updated
+    });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
 
 /**
  * POST /api/provider/documents
