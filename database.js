@@ -18,6 +18,8 @@ const tables = [
       email VARCHAR(150) UNIQUE NOT NULL,
       phone VARCHAR(20),
       password VARCHAR(255),
+      reset_password_token VARCHAR(255) NULL,
+      reset_password_expires DATETIME NULL;
       google_id VARCHAR(255),                        
       is_google_account TINYINT DEFAULT 0,          
       role ENUM('client','provider','admin') DEFAULT 'client',
@@ -116,6 +118,7 @@ const tables = [
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
   )`
+  
 ];
 
 async function setupDatabase() {

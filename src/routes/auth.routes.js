@@ -4,8 +4,10 @@ import {
   registerClient,
   registerProvider,
   logout,
-  googleLogin
-} from "../controllers/auth.controller.js";
+  googleLogin,
+  forgotPassword, // Ajouter
+  resetPassword
+} from "../controllers/auth.controller.js"; 
 
 import { auth } from "../middlewares/auth.js";
 
@@ -18,6 +20,12 @@ router.post("/login", login);
 
 // GOOGLE LOGIN
 router.post("/google", googleLogin);
+
+
+// FORGOT PASSWORD
+router.post("/forgot-password", forgotPassword); // Nouvelle route pour envoyer le code
+router.post("/reset-password", resetPassword);   // Nouvelle route pour réinitialiser le mot de passe
+
 
 // LOGOUT
 router.post("/logout", auth, logout);
