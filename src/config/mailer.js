@@ -6,7 +6,9 @@ dotenv.config();
 // Configuration du transporteur (ex: Gmail, SendGrid, etc.)
 // Remplacer avec vos propres informations de service SMTP
 const transporter = nodemailer.createTransport({
-  service: process.env.MAIL_SERVICE || 'gmail', // Ex: 'gmail'
+    host: 'smtp.gmail.com', // ou autre
+    port: 587,
+    secure: false, // TLS, pas SSL direct
   auth: {
     user: process.env.MAIL_USER, // Votre adresse email
     pass: process.env.MAIL_PASS, // Votre mot de passe/clé d'application
