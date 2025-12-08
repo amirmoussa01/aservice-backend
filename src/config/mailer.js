@@ -11,7 +11,7 @@ const transporter = nodemailer.createTransport({
     secure: false, // TLS, pas SSL direct
 
     requireTLS: true, // Force l'utilisation de TLS
-    connectionTimeout: 15000, // Augmente le timeout à 15 secondes
+    connectionTimeout: 30000, // Augmente le timeout à 15 secondes
   auth: {
     user: process.env.MAIL_USER, // Votre adresse email
     pass: process.env.MAIL_PASS, // Votre mot de passe/clé d'application
