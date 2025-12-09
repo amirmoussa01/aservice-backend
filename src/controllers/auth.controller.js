@@ -5,7 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 import { sendEmail } from "../config/mailer.js";
 
-/* ----------------------- FORGOT PASSWORD (STEP 1: Send Code) ----------------------- */
+/* ---------------------- FORGOT PASSWORD ---------------------- */
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -20,48 +20,53 @@ export const forgotPassword = async (req, res) => {
     );
 
     if (rows.length === 0) {
-      // Pour des raisons de sécurité, on ne doit pas dire si l'email existe ou non.
-      return res.json({ message: "Si cet email est enregistré, un code de réinitialisation sera envoyé." });
+      return res.json({
+        message:
+          "Si cet email est enregistré, un code de réinitialisation sera envoyé.",
+      });
     }
 
     const user = rows[0];
 
-    // Générer un code à 6 chiffres
+    // Code 6 chiffres
     const code = crypto.randomInt(100000, 999999).toString();
-    const expiry = new Date(Date.now() + 3600000); // Expire dans 1 heure (3600000 ms)
+    const expiry = new Date(Date.now() + 3600000); // 1h
 
-    // Stocker le code et l'expiration dans la BD
     await pool.query(
       "UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE id = ?",
       [code, expiry, user.id]
     );
 
-    // Envoyer l'email
-    const subject = "Code de Réinitialisation de Mot de Passe pour Bconnect";
+    const subject = "Code de réinitialisation - Bconnect";
     const htmlContent = `
       <p>Bonjour ${user.name},</p>
-      <p>Votre code de réinitialisation de mot de passe est : <strong>${code}</strong></p>
-      <p>Ce code est valide pendant une heure. Veuillez ne pas le partager.</p>
-      <p>Si vous n'avez pas demandé cette réinitialisation, veuillez ignorer cet email.</p>
+      <p>Votre code de réinitialisation est : <strong>${code}</strong></p>
+      <p>Il expire dans 1 heure.</p>
+      <p>Si vous n'êtes pas à l'origine de la demande, ignorez cet email.</p>
     `;
 
     await sendEmail(email, subject, htmlContent);
 
-    res.json({ message: "Code de réinitialisation envoyé à l'adresse e-mail." });
-
+    res.json({
+      message: "Code de réinitialisation envoyé à l'adresse e-mail.",
+    });
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    res.status(500).json({ message: "Erreur serveur lors de l'envoi du code." });
+    res.status(500).json({
+      message: "Erreur serveur lors de l'envoi du code.",
+    });
   }
 };
 
-/* ----------------------- RESET PASSWORD (STEP 2: Verify Code and Change Password) ----------------------- */
+/* ---------------------- RESET PASSWORD ---------------------- */
 export const resetPassword = async (req, res) => {
   try {
     const { email, code, newPassword } = req.body;
 
     if (!email || !code || !newPassword) {
-      return res.status(400).json({ message: "Email, code et nouveau mot de passe sont requis" });
+      return res.status(400).json({
+        message: "Email, code et nouveau mot de passe sont requis",
+      });
     }
 
     const [rows] = await pool.query(
@@ -69,32 +74,37 @@ export const resetPassword = async (req, res) => {
       [email]
     );
 
-    const user = rows[0];
-    if (!user) {
+    if (rows.length === 0) {
       return res.status(404).json({ message: "Utilisateur non trouvé" });
     }
 
-    // Vérifier le code et l'expiration
-    if (user.reset_password_token !== code || new Date(user.reset_password_expires) < new Date()) {
-      // On efface le token pour qu'il ne puisse plus être utilisé
-      await pool.query("UPDATE users SET reset_password_token = NULL, reset_password_expires = NULL WHERE id = ?", [user.id]);
+    const user = rows[0];
+
+    // Vérification du code + expiration
+    if (
+      user.reset_password_token !== code ||
+      new Date(user.reset_password_expires) < new Date()
+    ) {
+      await pool.query(
+        "UPDATE users SET reset_password_token = NULL, reset_password_expires = NULL WHERE id = ?",
+        [user.id]
+      );
       return res.status(400).json({ message: "Code invalide ou expiré" });
     }
 
-    // Hash le nouveau mot de passe
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Mettre à jour le mot de passe et effacer le code de réinitialisation
     await pool.query(
       "UPDATE users SET password = ?, reset_password_token = NULL, reset_password_expires = NULL WHERE id = ?",
       [hashedPassword, user.id]
     );
 
     res.json({ message: "Mot de passe réinitialisé avec succès" });
-
   } catch (err) {
     console.error("Reset Password Error:", err);
-    res.status(500).json({ message: "Erreur serveur lors de la réinitialisation." });
+    res.status(500).json({
+      message: "Erreur serveur lors de la réinitialisation.",
+    });
   }
 };
 
