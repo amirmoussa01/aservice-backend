@@ -1,35 +1,25 @@
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
+import Brevo from '@getbrevo/brevo';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-  host: process.env.MAIL_HOST,      // smtp-relay.brevo.com
-  port: process.env.MAIL_PORT,      // 587
-  secure: false,                    // TLS
-  auth: {
-    user: process.env.MAIL_USER,    // ton email brevo
-    pass: process.env.MAIL_PASS,    // clé SMTP brevo
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+const apiInstance = new Brevo.TransactionalEmailsApi();
+apiInstance.setApiKey(
+  Brevo.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY
+);
 
-// Vérifie la connexion SMTP
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("Erreur transporteur mail:", error);
-  } else {
-    console.log("Serveur SMTP Brevo opérationnel ✔️");
+export const sendEmail = async (to, subject, htmlContent) => {
+  try {
+    const sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.sender = { name: "Bconnect", email: process.env.MAIL_FROM };
+    sendSmtpEmail.to = [{ email: to }];
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log("Email envoyé !");
+  } catch (err) {
+    console.error("Erreur envoi email:", err);
   }
-});
-
-export const sendEmail = (to, subject, htmlContent) => {
-  return transporter.sendMail({
-    from: `"Bconnect" <${process.env.MAIL_USER}>`,
-    to,
-    subject,
-    html: htmlContent,
-  });
 };
