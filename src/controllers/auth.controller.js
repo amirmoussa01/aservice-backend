@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { sendEmail } from "../config/mailer.js";
 
 /* ---------------------- FORGOT PASSWORD ---------------------- */
+
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -19,18 +20,18 @@ export const forgotPassword = async (req, res) => {
       [email]
     );
 
+    // On ne précise jamais si l'email existe
     if (rows.length === 0) {
       return res.json({
-        message:
-          "Si cet email est enregistré, un code de réinitialisation sera envoyé.",
+        message: "Si cet email est enregistré, un code de réinitialisation sera envoyé.",
       });
     }
 
     const user = rows[0];
 
-    // Code 6 chiffres
+    // Générer code 6 chiffres
     const code = crypto.randomInt(100000, 999999).toString();
-    const expiry = new Date(Date.now() + 3600000); // 1h
+    const expiry = new Date(Date.now() + 3600000); // +1h
 
     await pool.query(
       "UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE id = ?",
@@ -42,19 +43,18 @@ export const forgotPassword = async (req, res) => {
       <p>Bonjour ${user.name},</p>
       <p>Votre code de réinitialisation est : <strong>${code}</strong></p>
       <p>Il expire dans 1 heure.</p>
-      <p>Si vous n'êtes pas à l'origine de la demande, ignorez cet email.</p>
+      <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
     `;
 
     await sendEmail(email, subject, htmlContent);
 
     res.json({
-      message: "Code de réinitialisation envoyé à l'adresse e-mail.",
+      message: "Code envoyé à votre adresse email.",
     });
+
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    res.status(500).json({
-      message: "Erreur serveur lors de l'envoi du code.",
-    });
+    res.status(500).json({ message: "Erreur serveur lors de l'envoi du code." });
   }
 };
 
