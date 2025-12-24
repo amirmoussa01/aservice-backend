@@ -265,7 +265,7 @@ export const login = async (req, res) => {
   }
 };
 
-/* ----------------------- LOGIN GOOGLE ----------------------- */
+/* ----------------------- LOGIN GOOGLE (CORRIGÉ SQL) ----------------------- */
 export const googleLogin = async (req, res) => {
   try {
     const { token } = req.body;
@@ -274,43 +274,57 @@ export const googleLogin = async (req, res) => {
       return res.status(400).json({ success: false, message: "Token Google manquant" });
     }
 
-    // Vérification du token Google
+    // 1. Vérification du token via Google
     const ticket = await client.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
-    const name = payload.name;
-    const email = payload.email;
-    const avatar = payload.picture;
+    const { name, email, picture: avatar } = payload;
 
-    // Vérifier si utilisateur existe
-    let user = await User.findOne({ email });
+    // 2. Vérifier si l'utilisateur existe en SQL
+    const [rows] = await pool.query(
+      "SELECT * FROM users WHERE email = ? LIMIT 1",
+      [email]
+    );
 
-    if (!user) {
-      // Création du user Google
-      user = await User.create({
-        name,
-        email,
-        avatar,
-        role: "client",  // par défaut
-        password: null,
-      });
+    let user;
 
-      // Création profil client
-      await ClientProfile.create({ user: user._id });
+    if (rows.length === 0) {
+      // 3. Création de l'utilisateur s'il n'existe pas
+      const [result] = await pool.query(
+        `INSERT INTO users(name, email, avatar, role, is_google_account) 
+         VALUES (?, ?, ?, 'client', 1)`,
+        [name, email, avatar]
+      );
+      
+      const newUserId = result.insertId;
+      
+      // Récupérer le nouvel utilisateur créé
+      const [newUserRows] = await pool.query("SELECT * FROM users WHERE id = ?", [newUserId]);
+      user = newUserRows[0];
+    } else {
+      user = rows[0];
+      
+      // Optionnel: Mettre à jour l'avatar ou le statut Google si nécessaire
+      if (user.is_google_account === 0) {
+        await pool.query("UPDATE users SET is_google_account = 1 WHERE id = ?", [user.id]);
+        user.is_google_account = 1;
+      }
     }
 
-    // Générer token JWT
-    const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    // 4. Générer le token JWT (en utilisant ta fonction generateToken existante)
+    const jwtToken = generateToken({ id: user.id, role: user.role });
 
-    // Charger profil provider si user.role == provider
+    // 5. Charger le profil provider si nécessaire
     let providerProfile = null;
     if (user.role === "provider") {
-      providerProfile = await ProviderProfile.findOne({ user: user._id });
+      const [profile] = await pool.query(
+        "SELECT * FROM provider_profiles WHERE user_id = ? LIMIT 1",
+        [user.id]
+      );
+      providerProfile = profile[0] || null;
     }
 
     return res.json({
@@ -318,7 +332,7 @@ export const googleLogin = async (req, res) => {
       message: "Login Google réussi",
       token: jwtToken,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         avatar: user.avatar,
@@ -328,14 +342,13 @@ export const googleLogin = async (req, res) => {
     });
 
   } catch (error) {
-    console.log("Google Login error:", error);
+    console.error("Google Login error:", error);
     return res.status(500).json({
       success: false,
       message: "Erreur serveur Google Login",
     });
   }
 };
-
 /* ----------------------- LOGOUT ----------------------- */
 export const logout = async (req, res) => {
   return res.status(200).json({
