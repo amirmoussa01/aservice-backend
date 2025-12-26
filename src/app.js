@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.routes.js";
 import providerRoutes from "./routes/provider.routes.js";
 import clientRoutes from "./routes/client.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
 
 dotenv.config();
 
@@ -29,12 +30,13 @@ app.use(
   "/uploads/avatars",
   express.static(path.join(process.cwd(), "uploads", "avatars"))
 );
-
+app.use('/uploads', express.static('uploads'));
 // === ROUTES ===
 app.use("/api/auth", authRoutes);
 app.use("/api/provider", providerRoutes);
 app.use("/api/client", clientRoutes);
 app.use("/api", serviceRoutes);
+app.use("/api", categoryRoutes);
 
 
 export default app;
