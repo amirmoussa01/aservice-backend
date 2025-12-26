@@ -6,6 +6,7 @@ import path from "path";
 import authRoutes from "./routes/auth.routes.js";
 import providerRoutes from "./routes/provider.routes.js";
 import clientRoutes from "./routes/client.routes.js";
+import serviceRoutes from "./routes/service.routes.js";
 
 dotenv.config();
 
@@ -33,5 +34,7 @@ app.use(
 app.use("/api/auth", authRoutes);
 app.use("/api/provider", providerRoutes);
 app.use("/api/client", clientRoutes);
+app.use("/api", serviceRoutes);
+
 
 export default app;
