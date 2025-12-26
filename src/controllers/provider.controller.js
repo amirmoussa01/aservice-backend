@@ -114,7 +114,73 @@ export const updateProfile = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/provider/avatar
+ * Upload avatar du provider
+ */
+export const uploadProviderAvatar = async (req, res) => {
+  try {
+    const userId = req.user.id;
 
+    if (!req.file) return res.status(400).json({ message: "Fichier avatar manquant" });
+
+    const relativePath = `/uploads/avatars/${req.file.filename}`;
+    
+    // Récupérer l'ancien avatar
+    const [[user]] = await pool.query("SELECT avatar FROM users WHERE id = ? LIMIT 1", [userId]);
+    const oldAvatar = user?.avatar;
+
+    // Mettre à jour la BDD
+    await pool.query("UPDATE users SET avatar = ? WHERE id = ?", [relativePath, userId]);
+
+    // Supprimer l'ancien fichier
+    if (oldAvatar) {
+      try {
+        const oldPath = path.join(process.cwd(), oldAvatar);
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch (e) {
+        console.warn("Impossible de supprimer l'ancien avatar:", e.message);
+      }
+    }
+
+    return res.status(201).json({ message: "Avatar mis à jour", avatar: relativePath });
+  } catch (err) {
+    console.error("uploadProviderAvatar:", err);
+    return res.status(500).json({ message: "Erreur lors de l'upload de l'avatar" });
+  }
+};
+
+/**
+ * DELETE /api/provider/avatar
+ * Supprime l'avatar du provider
+ */
+export const deleteProviderAvatar = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [[user]] = await pool.query("SELECT avatar FROM users WHERE id = ? LIMIT 1", [userId]);
+    if (!user) return res.status(404).json({ message: "Provider introuvable" });
+
+    const avatar = user.avatar;
+    if (!avatar) return res.status(400).json({ message: "Aucun avatar à supprimer" });
+
+    // Mettre avatar à NULL
+    await pool.query("UPDATE users SET avatar = NULL WHERE id = ?", [userId]);
+
+    // Supprimer le fichier physique
+    try {
+      const filePath = path.join(process.cwd(), avatar);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {
+      console.warn("Impossible de supprimer le fichier avatar:", e.message);
+    }
+
+    return res.json({ message: "Avatar supprimé" });
+  } catch (err) {
+    console.error("deleteProviderAvatar:", err);
+    return res.status(500).json({ message: "Erreur serveur" });
+  }
+};
 /**
  * PUT /api/provider/profile/location
  * Body: { latitude, longitude, address }
