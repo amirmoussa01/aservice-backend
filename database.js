@@ -65,6 +65,7 @@ const tables = [
       provider_id INT NOT NULL,
       category_id INT NOT NULL,
       title VARCHAR(150) NOT NULL,
+      image VARCHAR(255) NULL COMMENT 'Image de couverture du service',
       description TEXT,
       price DECIMAL(10,2) NOT NULL,
       duration INT DEFAULT 60 COMMENT 'Durée en minutes',

@@ -1,4 +1,6 @@
 import { pool } from "../config/db.js";
+import fs from "fs";
+import path from "path";
 
 /**
  * POST /api/provider/services
@@ -11,28 +13,35 @@ export const createService = async (req, res) => {
 
     // Validation
     if (!category_id || !title || !price) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(400).json({ 
         message: "Catégorie, titre et prix sont obligatoires" 
       });
     }
 
-    // Récupérer provider_id depuis user_id
+    // Récupérer provider_id
     const [[provider]] = await pool.query(
       "SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1",
       [userId]
     );
 
     if (!provider) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(404).json({ message: "Profil prestataire introuvable" });
     }
 
     const providerId = provider.id;
+    const imagePath = req.file ? `/uploads/services/${req.file.filename}` : null;
 
     // Insérer le service
     const [result] = await pool.query(
-      `INSERT INTO services (provider_id, category_id, title, description, price, duration, status) 
-       VALUES (?, ?, ?, ?, ?, ?, 'active')`,
-      [providerId, category_id, title, description, price, duration || 60]
+      `INSERT INTO services (provider_id, category_id, title, description, image, price, duration, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [providerId, category_id, title, description, imagePath, price, duration || 60]
     );
 
     // Récupérer le service créé
@@ -51,42 +60,9 @@ export const createService = async (req, res) => {
 
   } catch (err) {
     console.error("createService error:", err);
-    res.status(500).json({ message: "Erreur serveur" });
-  }
-};
-
-/**
- * GET /api/provider/services
- * Liste des services du prestataire connecté
- */
-export const getMyServices = async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    // Récupérer provider_id
-    const [[provider]] = await pool.query(
-      "SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1",
-      [userId]
-    );
-
-    if (!provider) {
-      return res.status(404).json({ message: "Profil prestataire introuvable" });
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
     }
-
-    // Récupérer tous les services
-    const [services] = await pool.query(
-      `SELECT s.*, c.name as category_name, c.icon as category_icon
-       FROM services s
-       LEFT JOIN categories c ON s.category_id = c.id
-       WHERE s.provider_id = ?
-       ORDER BY s.created_at DESC`,
-      [provider.id]
-    );
-
-    res.json({ services });
-
-  } catch (err) {
-    console.error("getMyServices error:", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
@@ -108,25 +84,44 @@ export const updateService = async (req, res) => {
     );
 
     if (!provider) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(404).json({ message: "Profil prestataire introuvable" });
     }
 
-    // Vérifier que le service appartient bien au prestataire
+    // Vérifier que le service appartient au prestataire
     const [[service]] = await pool.query(
-      "SELECT id FROM services WHERE id = ? AND provider_id = ? LIMIT 1",
+      "SELECT * FROM services WHERE id = ? AND provider_id = ? LIMIT 1",
       [serviceId, provider.id]
     );
 
     if (!service) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(404).json({ message: "Service introuvable" });
+    }
+
+    // Gérer l'image
+    let imagePath = service.image;
+    if (req.file) {
+      // Supprimer l'ancienne image
+      if (service.image) {
+        const oldImagePath = path.join(process.cwd(), service.image);
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
+      }
+      imagePath = `/uploads/services/${req.file.filename}`;
     }
 
     // Mettre à jour
     await pool.query(
       `UPDATE services 
-       SET category_id = ?, title = ?, description = ?, price = ?, duration = ?, status = ?
+       SET category_id = ?, title = ?, description = ?, image = ?, price = ?, duration = ?, status = ?
        WHERE id = ? AND provider_id = ?`,
-      [category_id, title, description, price, duration, status || 'active', serviceId, provider.id]
+      [category_id, title, description, imagePath, price, duration, status || 'active', serviceId, provider.id]
     );
 
     // Récupérer le service mis à jour
@@ -145,6 +140,9 @@ export const updateService = async (req, res) => {
 
   } catch (err) {
     console.error("updateService error:", err);
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
@@ -158,7 +156,6 @@ export const deleteService = async (req, res) => {
     const userId = req.user.id;
     const serviceId = req.params.id;
 
-    // Récupérer provider_id
     const [[provider]] = await pool.query(
       "SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1",
       [userId]
@@ -168,9 +165,8 @@ export const deleteService = async (req, res) => {
       return res.status(404).json({ message: "Profil prestataire introuvable" });
     }
 
-    // Vérifier que le service appartient bien au prestataire
     const [[service]] = await pool.query(
-      "SELECT id FROM services WHERE id = ? AND provider_id = ? LIMIT 1",
+      "SELECT * FROM services WHERE id = ? AND provider_id = ? LIMIT 1",
       [serviceId, provider.id]
     );
 
@@ -178,7 +174,15 @@ export const deleteService = async (req, res) => {
       return res.status(404).json({ message: "Service introuvable" });
     }
 
-    // Supprimer
+    // Supprimer l'image
+    if (service.image) {
+      const imagePath = path.join(process.cwd(), service.image);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+    }
+
+    // Supprimer le service
     await pool.query(
       "DELETE FROM services WHERE id = ? AND provider_id = ?",
       [serviceId, provider.id]
@@ -193,8 +197,42 @@ export const deleteService = async (req, res) => {
 };
 
 /**
+ * GET /api/provider/services
+ * Liste des services du prestataire
+ */
+export const getMyServices = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [[provider]] = await pool.query(
+      "SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1",
+      [userId]
+    );
+
+    if (!provider) {
+      return res.status(404).json({ message: "Profil prestataire introuvable" });
+    }
+
+    const [services] = await pool.query(
+      `SELECT s.*, c.name as category_name, c.icon as category_icon
+       FROM services s
+       LEFT JOIN categories c ON s.category_id = c.id
+       WHERE s.provider_id = ?
+       ORDER BY s.created_at DESC`,
+      [provider.id]
+    );
+
+    res.json({ services });
+
+  } catch (err) {
+    console.error("getMyServices error:", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+/**
  * GET /api/services
- * Liste publique de tous les services actifs
+ * Liste publique
  */
 export const getPublicServices = async (req, res) => {
   try {
@@ -246,7 +284,6 @@ export const getPublicServices = async (req, res) => {
 
 /**
  * GET /api/services/category/:categoryId
- * Services d'une catégorie spécifique
  */
 export const getServicesByCategory = async (req, res) => {
   try {
@@ -279,3 +316,4 @@ export const getServicesByCategory = async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
