@@ -5,7 +5,8 @@ import {
   updateService, 
   deleteService,
   getPublicServices,
-  getServicesByCategory
+  getServicesByCategory,
+  filterServices,
 } from "../controllers/service.controller.js";
 import { auth } from "../middlewares/auth.js";
 import { isProvider } from "../middlewares/roles.js";
@@ -20,6 +21,7 @@ router.put("/provider/services/:id", auth, isProvider, uploadServiceImage, updat
 router.delete("/provider/services/:id", auth, isProvider, deleteService);
 
 // Routes publiques
+router.get("/services/filter", filterServices);
 router.get("/services", getPublicServices);
 router.get("/services/category/:categoryId", getServicesByCategory);
 

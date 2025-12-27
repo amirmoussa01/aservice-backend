@@ -317,3 +317,153 @@ export const getServicesByCategory = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/services/filter
+ * Filtrage avancé des services
+ */
+export const filterServices = async (req, res) => {
+  try {
+    const { 
+      category_id, 
+      search, 
+      min_price, 
+      max_price,
+      min_duration,
+      max_duration,
+      sort_by = 'created_at', // created_at, price, duration
+      sort_order = 'DESC', // ASC, DESC
+      limit = 50, 
+      offset = 0 
+    } = req.query;
+
+    let query = `
+      SELECT 
+        s.*,
+        c.name as category_name, 
+        c.icon as category_icon,
+        p.id as provider_profile_id,
+        u.id as provider_user_id,
+        u.name as provider_name,
+        u.avatar as provider_avatar,
+        p.specialty as provider_specialty,
+        p.address as provider_address,
+        p.verified as provider_verified
+      FROM services s
+      LEFT JOIN categories c ON s.category_id = c.id
+      LEFT JOIN provider_profiles p ON s.provider_id = p.id
+      LEFT JOIN users u ON p.user_id = u.id
+      WHERE s.status = 'active'
+    `;
+
+    const params = [];
+
+    // Filtre par catégorie
+    if (category_id) {
+      query += " AND s.category_id = ?";
+      params.push(category_id);
+    }
+
+    // Filtre par recherche
+    if (search) {
+      query += " AND (s.title LIKE ? OR s.description LIKE ? OR u.name LIKE ?)";
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    // Filtre par prix minimum
+    if (min_price) {
+      query += " AND s.price >= ?";
+      params.push(parseFloat(min_price));
+    }
+
+    // Filtre par prix maximum
+    if (max_price) {
+      query += " AND s.price <= ?";
+      params.push(parseFloat(max_price));
+    }
+
+    // Filtre par durée minimum
+    if (min_duration) {
+      query += " AND s.duration >= ?";
+      params.push(parseInt(min_duration));
+    }
+
+    // Filtre par durée maximum
+    if (max_duration) {
+      query += " AND s.duration <= ?";
+      params.push(parseInt(max_duration));
+    }
+
+    // Tri
+    const allowedSortFields = ['created_at', 'price', 'duration', 'title'];
+    const allowedSortOrders = ['ASC', 'DESC'];
+    
+    const sortField = allowedSortFields.includes(sort_by) ? sort_by : 'created_at';
+    const sortOrder = allowedSortOrders.includes(sort_order.toUpperCase()) ? sort_order.toUpperCase() : 'DESC';
+    
+    query += ` ORDER BY s.${sortField} ${sortOrder}`;
+
+    // Pagination
+    query += " LIMIT ? OFFSET ?";
+    params.push(parseInt(limit), parseInt(offset));
+
+    const [services] = await pool.query(query, params);
+
+    // Compter le total (pour la pagination)
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM services s
+      LEFT JOIN provider_profiles p ON s.provider_id = p.id
+      LEFT JOIN users u ON p.user_id = u.id
+      WHERE s.status = 'active'
+    `;
+
+    const countParams = [];
+
+    if (category_id) {
+      countQuery += " AND s.category_id = ?";
+      countParams.push(category_id);
+    }
+
+    if (search) {
+      countQuery += " AND (s.title LIKE ? OR s.description LIKE ? OR u.name LIKE ?)";
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    if (min_price) {
+      countQuery += " AND s.price >= ?";
+      countParams.push(parseFloat(min_price));
+    }
+
+    if (max_price) {
+      countQuery += " AND s.price <= ?";
+      countParams.push(parseFloat(max_price));
+    }
+
+    if (min_duration) {
+      countQuery += " AND s.duration >= ?";
+      countParams.push(parseInt(min_duration));
+    }
+
+    if (max_duration) {
+      countQuery += " AND s.duration <= ?";
+      countParams.push(parseInt(max_duration));
+    }
+
+    const [[{ total }]] = await pool.query(countQuery, countParams);
+
+    res.json({ 
+      services,
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: (parseInt(offset) + parseInt(limit)) < total
+      }
+    });
+
+  } catch (err) {
+    console.error("filterServices error:", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
