@@ -265,7 +265,7 @@ export const login = async (req, res) => {
   }
 };
 
-/* ----------------------- LOGIN GOOGLE (CORRIGÉ SQL) ----------------------- */
+/* ----------------------- LOGIN GOOGLE (MODIFIÉ - ACCEPTE ID TOKEN ET ACCESS TOKEN) ----------------------- */
 export const googleLogin = async (req, res) => {
   try {
     const { token } = req.body;
@@ -274,14 +274,63 @@ export const googleLogin = async (req, res) => {
       return res.status(400).json({ success: false, message: "Token Google manquant" });
     }
 
-    // 1. Vérification du token via Google
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
+    let googleUser;
 
-    const payload = ticket.getPayload();
-    const { name, email, picture: avatar } = payload;
+    try {
+      // ✅ TENTATIVE 1 : Vérifier comme ID Token
+      console.log("🔍 Tentative de vérification comme ID Token...");
+      const ticket = await client.verifyIdToken({
+        idToken: token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      googleUser = {
+        name: payload.name,
+        email: payload.email,
+        picture: payload.picture,
+      };
+      console.log("✅ ID Token validé avec succès");
+
+    } catch (idTokenError) {
+      // ✅ TENTATIVE 2 : Si échec, essayer comme Access Token
+      console.log("⚠️ Échec ID Token, tentative avec Access Token...");
+      
+      try {
+        const response = await fetch(
+          `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Access Token invalide");
+        }
+
+        const data = await response.json();
+
+        if (!data.email) {
+          throw new Error("Email non trouvé dans la réponse Google");
+        }
+
+        googleUser = {
+          name: data.name,
+          email: data.email,
+          picture: data.picture,
+        };
+        console.log("✅ Access Token validé avec succès");
+
+      } catch (accessTokenError) {
+        console.error("❌ Échec des deux méthodes de validation:", {
+          idTokenError: idTokenError.message,
+          accessTokenError: accessTokenError.message,
+        });
+        return res.status(401).json({
+          success: false,
+          message: "Token Google invalide (ID Token et Access Token rejetés)",
+        });
+      }
+    }
+
+    const { name, email, picture: avatar } = googleUser;
 
     // 2. Vérifier si l'utilisateur existe en SQL
     const [rows] = await pool.query(
@@ -293,6 +342,7 @@ export const googleLogin = async (req, res) => {
 
     if (rows.length === 0) {
       // 3. Création de l'utilisateur s'il n'existe pas
+      console.log(`📝 Création d'un nouvel utilisateur: ${email}`);
       const [result] = await pool.query(
         `INSERT INTO users(name, email, avatar, role, is_google_account) 
          VALUES (?, ?, ?, 'client', 1)`,
@@ -306,15 +356,20 @@ export const googleLogin = async (req, res) => {
       user = newUserRows[0];
     } else {
       user = rows[0];
+      console.log(`✅ Utilisateur existant trouvé: ${email}`);
       
-      // Optionnel: Mettre à jour l'avatar ou le statut Google si nécessaire
-      if (user.is_google_account === 0) {
-        await pool.query("UPDATE users SET is_google_account = 1 WHERE id = ?", [user.id]);
+      // Mettre à jour l'avatar et le statut Google si nécessaire
+      if (user.is_google_account === 0 || user.avatar !== avatar) {
+        await pool.query(
+          "UPDATE users SET is_google_account = 1, avatar = ? WHERE id = ?",
+          [avatar, user.id]
+        );
         user.is_google_account = 1;
+        user.avatar = avatar;
       }
     }
 
-    // 4. Générer le token JWT (en utilisant ta fonction generateToken existante)
+    // 4. Générer le token JWT
     const jwtToken = generateToken({ id: user.id, role: user.role });
 
     // 5. Charger le profil provider si nécessaire
@@ -327,6 +382,8 @@ export const googleLogin = async (req, res) => {
       providerProfile = profile[0] || null;
     }
 
+    console.log(`🎉 Login Google réussi pour: ${email}`);
+
     return res.json({
       success: true,
       message: "Login Google réussi",
@@ -337,15 +394,17 @@ export const googleLogin = async (req, res) => {
         email: user.email,
         avatar: user.avatar,
         role: user.role,
+        is_google_account: user.is_google_account,
         provider_profile: providerProfile,
       },
     });
 
   } catch (error) {
-    console.error("Google Login error:", error);
+    console.error("❌ Google Login error:", error);
     return res.status(500).json({
       success: false,
       message: "Erreur serveur Google Login",
+      error: error.message,
     });
   }
 };
