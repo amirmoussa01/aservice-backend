@@ -31,6 +31,30 @@ app.use(
   express.static(path.join(process.cwd(), "uploads", "avatars"))
 );
 app.use('/uploads', express.static('uploads'));
+
+// ✅ AJOUTE CES LIGNES ICI (Route de monitoring)
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    message: 'Bconnect API is running',
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// Route racine (optionnel, pour tester que l'API fonctionne)
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Bienvenue sur Bconnect API', 
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      provider: '/api/provider',
+      client: '/api/client',
+      services: '/api/services',
+      categories: '/api/categories'
+    }
+  });
+});
 // === ROUTES ===
 app.use("/api/auth", authRoutes);
 app.use("/api/provider", providerRoutes);
