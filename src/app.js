@@ -8,6 +8,7 @@ import providerRoutes from "./routes/provider.routes.js";
 import clientRoutes from "./routes/client.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
+import bookingRoutes from "./routes/booking.routes.js";
 
 dotenv.config();
 
@@ -51,7 +52,7 @@ app.get('/', (req, res) => {
       provider: '/api/provider',
       client: '/api/client',
       services: '/api/services',
-      categories: '/api/categories'
+      categories: '/api/categories',
     }
   });
 });
@@ -61,6 +62,7 @@ app.use("/api/provider", providerRoutes);
 app.use("/api/client", clientRoutes);
 app.use("/api", serviceRoutes);
 app.use("/api", categoryRoutes);
+app.use("/api", bookingRoutes);
 
 
 export default app;
