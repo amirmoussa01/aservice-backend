@@ -9,8 +9,11 @@ import clientRoutes from "./routes/client.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
+import { startNotificationScheduler } from './cron/notificationScheduler.js';
 
 dotenv.config();
+
+startNotificationScheduler();
 
 const app = express();
 app.use(cors());

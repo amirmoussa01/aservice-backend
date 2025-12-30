@@ -3,10 +3,9 @@ import { pool } from "../config/db.js";
 /* ==================== CLIENT : CRÉER UNE RÉSERVATION ==================== */
 export const createBooking = async (req, res) => {
   try {
-    const clientId = req.user.id; // ID du client connecté (via middleware auth)
+    const clientId = req.user.id;
     const { service_id, date, time, notes } = req.body;
 
-    // Validation
     if (!service_id || !date || !time) {
       return res.status(400).json({ 
         success: false, 
@@ -14,7 +13,6 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // 1. Récupérer les infos du service
     const [services] = await pool.query(
       `SELECT s.id, s.provider_id, s.price, s.duration, s.title,
               u.name as provider_name, u.email as provider_email
@@ -34,7 +32,6 @@ export const createBooking = async (req, res) => {
 
     const service = services[0];
 
-    // 2. Vérifier que le client ne réserve pas son propre service
     const [clientProfile] = await pool.query(
       "SELECT id FROM provider_profiles WHERE user_id = ?",
       [clientId]
@@ -47,7 +44,6 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // 3. Vérifier la disponibilité (éviter les doublons)
     const [existingBookings] = await pool.query(
       `SELECT id FROM bookings 
        WHERE provider_id = ? 
@@ -64,14 +60,12 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // 4. Créer la réservation
     const [result] = await pool.query(
       `INSERT INTO bookings (client_id, service_id, provider_id, date, time, total_price, notes, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [clientId, service_id, service.provider_id, date, time, service.price, notes || null]
     );
 
-    // 5. Créer une notification pour le prestataire
     const [providerUser] = await pool.query(
       "SELECT user_id FROM provider_profiles WHERE id = ?",
       [service.provider_id]
@@ -89,7 +83,6 @@ export const createBooking = async (req, res) => {
       );
     }
 
-    // 6. Récupérer la réservation créée avec toutes les infos
     const [newBooking] = await pool.query(
       `SELECT b.*, 
               s.title as service_title, s.image as service_image, s.duration,
@@ -122,7 +115,7 @@ export const createBooking = async (req, res) => {
 export const getClientBookings = async (req, res) => {
   try {
     const clientId = req.user.id;
-    const { status } = req.query; // Filtrer par statut (optionnel)
+    const { status } = req.query;
 
     let query = `
       SELECT b.*, 
@@ -166,7 +159,6 @@ export const getProviderBookings = async (req, res) => {
     const userId = req.user.id;
     const { status } = req.query;
 
-    // Récupérer l'ID du profil prestataire
     const [profiles] = await pool.query(
       "SELECT id FROM provider_profiles WHERE user_id = ?",
       [userId]
@@ -248,7 +240,6 @@ export const getBookingDetails = async (req, res) => {
 
     const booking = bookings[0];
 
-    // Vérifier que l'utilisateur a le droit de voir cette réservation
     const [providerProfile] = await pool.query(
       "SELECT id, user_id FROM provider_profiles WHERE id = ?",
       [booking.provider_id]
@@ -283,9 +274,8 @@ export const acceptBooking = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    // Vérifier que c'est bien le prestataire
     const [bookings] = await pool.query(
-      `SELECT b.*, pp.user_id as provider_user_id, s.title as service_title
+      `SELECT b.*, pp.user_id as provider_user_id, s.title as service_title, s.duration
        FROM bookings b
        JOIN provider_profiles pp ON b.provider_id = pp.id
        JOIN services s ON b.service_id = s.id
@@ -316,7 +306,6 @@ export const acceptBooking = async (req, res) => {
       });
     }
 
-    // Mettre à jour le statut
     await pool.query(
       "UPDATE bookings SET status = 'accepted' WHERE id = ?",
       [id]
@@ -332,6 +321,36 @@ export const acceptBooking = async (req, res) => {
         `Votre réservation pour "${booking.service_title}" a été acceptée`,
       ]
     );
+
+    // ✅ NOUVEAU : Créer une notification programmée pour la date du service
+    if (booking.duration) {
+      // Calculer la date/heure de fin du service
+      const serviceDateTime = `${booking.date} ${booking.time}`;
+      
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, message, type, scheduled_for)
+         VALUES (?, ?, ?, 'booking', DATE_ADD(?, INTERVAL ? MINUTE))`,
+        [
+          booking.provider_user_id,
+          "Service à marquer comme terminé",
+          `Le service "${booking.service_title}" devrait être terminé. Vous pouvez maintenant le marquer comme complété.`,
+          serviceDateTime,
+          booking.duration
+        ]
+      );
+
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, message, type, scheduled_for)
+         VALUES (?, ?, ?, 'booking', DATE_ADD(?, INTERVAL ? MINUTE))`,
+        [
+          booking.client_id,
+          "Service terminé",
+          `Le service "${booking.service_title}" devrait être terminé. N'oubliez pas de laisser un avis !`,
+          serviceDateTime,
+          booking.duration
+        ]
+      );
+    }
 
     res.json({
       success: true,
@@ -384,13 +403,11 @@ export const rejectBooking = async (req, res) => {
       });
     }
 
-    // Mettre à jour le statut (tu peux ajouter un champ rejection_reason si besoin)
     await pool.query(
       "UPDATE bookings SET status = 'cancelled', notes = CONCAT(IFNULL(notes, ''), '\nRefusée par le prestataire') WHERE id = ?",
       [id]
     );
 
-    // Notifier le client
     await pool.query(
       `INSERT INTO notifications (user_id, title, message, type)
        VALUES (?, ?, ?, 'booking')`,
@@ -453,14 +470,12 @@ export const cancelBooking = async (req, res) => {
       });
     }
 
-    // Annuler la réservation
     const cancellationNote = reason || "Annulée par le client";
     await pool.query(
       "UPDATE bookings SET status = 'cancelled', notes = CONCAT(IFNULL(notes, ''), '\n', ?) WHERE id = ?",
       [cancellationNote, id]
     );
 
-    // Notifier le prestataire
     await pool.query(
       `INSERT INTO notifications (user_id, title, message, type)
        VALUES (?, ?, ?, 'booking')`,
@@ -491,7 +506,7 @@ export const completeBooking = async (req, res) => {
     const userId = req.user.id;
 
     const [bookings] = await pool.query(
-      `SELECT b.*, pp.user_id as provider_user_id, s.title as service_title
+      `SELECT b.*, pp.user_id as provider_user_id, s.title as service_title, s.duration
        FROM bookings b
        JOIN provider_profiles pp ON b.provider_id = pp.id
        JOIN services s ON b.service_id = s.id
@@ -519,6 +534,29 @@ export const completeBooking = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: "Cette réservation ne peut pas être marquée comme terminée" 
+      });
+    }
+
+    // ✅ NOUVELLE VÉRIFICATION : Vérifier si la durée du service est dépassée
+    if (!booking.duration) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Impossible de terminer : la durée du service n'est pas définie" 
+      });
+    }
+
+    // Calculer la date/heure de fin du service
+    const serviceDateTime = new Date(`${booking.date} ${booking.time}`);
+    const serviceEndTime = new Date(serviceDateTime.getTime() + booking.duration * 60000); // Ajouter la durée en minutes
+    const now = new Date();
+
+    // Vérifier si la date de fin du service est dépassée
+    if (now < serviceEndTime) {
+      const remainingMinutes = Math.ceil((serviceEndTime - now) / 60000);
+      return res.status(400).json({ 
+        success: false, 
+        message: `Le service n'est pas encore terminé. Il reste environ ${remainingMinutes} minute(s).`,
+        service_end_time: serviceEndTime
       });
     }
 
@@ -561,7 +599,6 @@ export const getBookingStats = async (req, res) => {
     let stats = {};
 
     if (userRole === "client") {
-      // Stats client
       const [clientStats] = await pool.query(
         `SELECT 
           COUNT(*) as total,
@@ -576,7 +613,6 @@ export const getBookingStats = async (req, res) => {
 
       stats = clientStats[0];
     } else if (userRole === "provider") {
-      // Stats prestataire
       const [profiles] = await pool.query(
         "SELECT id FROM provider_profiles WHERE user_id = ?",
         [userId]
@@ -612,5 +648,36 @@ export const getBookingStats = async (req, res) => {
       success: false, 
       message: "Erreur serveur" 
     });
+  }
+};
+
+/* ==================== ✅ NOUVEAU : ENVOYER LES NOTIFICATIONS PROGRAMMÉES ==================== */
+export const sendScheduledNotifications = async () => {
+  try {
+    const now = new Date();
+
+    // Récupérer toutes les notifications programmées qui doivent être envoyées
+    const [notifications] = await pool.query(
+      `SELECT * FROM notifications 
+       WHERE scheduled_for IS NOT NULL 
+       AND scheduled_for <= ? 
+       AND is_sent = FALSE`,
+      [now]
+    );
+
+    for (const notification of notifications) {
+      // Marquer la notification comme envoyée
+      await pool.query(
+        "UPDATE notifications SET is_sent = TRUE WHERE id = ?",
+        [notification.id]
+      );
+
+      console.log(`Notification envoyée à l'utilisateur ${notification.user_id}: ${notification.message}`);
+    }
+
+    return { success: true, count: notifications.length };
+  } catch (error) {
+    console.error("Erreur envoi notifications programmées:", error);
+    return { success: false, error };
   }
 };

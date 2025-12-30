@@ -125,6 +125,8 @@ const tables = [
       title VARCHAR(150),
       message TEXT,
       type VARCHAR(50),
+      scheduled_for DATETIME DEFAULT NULL,
+      is_sent BOOLEAN DEFAULT FALSE;
       is_read TINYINT DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
