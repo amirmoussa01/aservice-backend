@@ -1,5 +1,7 @@
 import app from "./src/app.js";
 import dotenv from "dotenv";
+import { startNotificationScheduler } from './src/cron/notificationScheduler.js';
+
 
 dotenv.config();
 
@@ -7,4 +9,5 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 API running on http://${process.env.DB_HOST}:${PORT}`);
+  startNotificationScheduler();
 });
