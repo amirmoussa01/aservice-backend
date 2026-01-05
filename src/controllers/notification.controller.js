@@ -1,16 +1,14 @@
-import { pool } from "../config/db.js";
-
 /* ==================== RÉCUPÉRER LES NOTIFICATIONS D'UN UTILISATEUR ==================== */
 export const getUserNotifications = async (req, res) => {
   try {
     const userId = req.user.id;
     const { limit = 50, unreadOnly = false } = req.query;
 
+    // ✅ CORRIGÉ : Suppression de "AND is_sent = TRUE" pour afficher toutes les notifications
     let query = `
       SELECT * FROM notifications 
       WHERE user_id = ? 
       AND (scheduled_for IS NULL OR scheduled_for <= NOW())
-      AND is_sent = TRUE
     `;
 
     if (unreadOnly === 'true') {
@@ -23,7 +21,7 @@ export const getUserNotifications = async (req, res) => {
 
     // Compter les non lues
     const [countResult] = await pool.query(
-      "SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = ? AND is_read = 0 AND is_sent = TRUE",
+      "SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = ? AND is_read = 0",
       [userId]
     );
 
@@ -47,7 +45,6 @@ export const markAsRead = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    // Vérifier que la notification appartient à l'utilisateur
     const [notifications] = await pool.query(
       "SELECT * FROM notifications WHERE id = ? AND user_id = ?",
       [id, userId]
@@ -107,7 +104,6 @@ export const deleteNotification = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    // Vérifier que la notification appartient à l'utilisateur
     const [notifications] = await pool.query(
       "SELECT * FROM notifications WHERE id = ? AND user_id = ?",
       [id, userId]
@@ -193,7 +189,7 @@ export const getUnreadCount = async (req, res) => {
     const userId = req.user.id;
 
     const [result] = await pool.query(
-      "SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = ? AND is_read = 0 AND is_sent = TRUE",
+      "SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = ? AND is_read = 0",
       [userId]
     );
 
@@ -222,10 +218,8 @@ export const broadcastNotification = async (req, res) => {
       });
     }
 
-    // Récupérer tous les utilisateurs
     const [users] = await pool.query("SELECT id FROM users");
 
-    // Créer une notification pour chaque utilisateur
     const promises = users.map(user => 
       pool.query(
         `INSERT INTO notifications (user_id, title, message, type, is_sent)
