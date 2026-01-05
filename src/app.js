@@ -9,6 +9,8 @@ import clientRoutes from "./routes/client.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
+import reviewRoutes from './src/routes/review.routes.js';
+import notificationRoutes from './src/routes/notification.routes.js';
 
 dotenv.config();
 
@@ -65,6 +67,7 @@ app.use("/api/client", clientRoutes);
 app.use("/api", serviceRoutes);
 app.use("/api", categoryRoutes);
 app.use("/api", bookingRoutes);
-
+app.use('/api/reviews', reviewRoutes);             
+app.use('/api/notifications', notificationRoutes); 
 
 export default app;
