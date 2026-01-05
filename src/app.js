@@ -9,8 +9,8 @@ import clientRoutes from "./routes/client.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
-import reviewRoutes from './src/routes/review.routes.js';
-import notificationRoutes from './src/routes/notification.routes.js';
+import reviewRoutes from './routes/review.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 
 dotenv.config();
 
