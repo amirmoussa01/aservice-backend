@@ -1,3 +1,4 @@
+import pool from '../config/db.js';
 /* ==================== RÉCUPÉRER LES NOTIFICATIONS D'UN UTILISATEUR ==================== */
 export const getUserNotifications = async (req, res) => {
   try {
