@@ -14,16 +14,15 @@ import { isAdmin } from "../middlewares/roles.js";
 
 const router = express.Router();
 
-// Routes protégées (utilisateur)
-router.get("/notifications", auth, getUserNotifications);
-router.get("/notifications/unread-count", auth, getUnreadCount); 
-router.patch("/notifications/:id/read", auth, markAsRead);
-router.patch("/notifications/read-all", auth, markAllAsRead);
-router.delete("/notifications/:id", auth, deleteNotification);
-router.delete("/notifications", auth, deleteAllNotifications);
+router.get("/", auth, getUserNotifications);                    // GET /api/notifications
+router.get("/unread-count", auth, getUnreadCount);              // GET /api/notifications/unread-count
+router.patch("/:id/read", auth, markAsRead);                    // PATCH /api/notifications/:id/read
+router.patch("/read-all", auth, markAllAsRead);                 // PATCH /api/notifications/read-all
+router.delete("/:id", auth, deleteNotification);                // DELETE /api/notifications/:id
+router.delete("/", auth, deleteAllNotifications);               // DELETE /api/notifications
 
 // Routes admin
-router.post("/admin/notifications", auth, isAdmin, createNotification);
-router.post("/admin/notifications/broadcast", auth, isAdmin, broadcastNotification); 
+router.post("/admin", auth, isAdmin, createNotification);       // POST /api/notifications/admin
+router.post("/admin/broadcast", auth, isAdmin, broadcastNotification); // POST /api/notifications/admin/broadcast
 
 export default router;
