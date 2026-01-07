@@ -67,7 +67,7 @@ app.use("/api/client", clientRoutes);
 app.use("/api", serviceRoutes);
 app.use("/api", categoryRoutes);
 app.use("/api", bookingRoutes);
-app.use('/api/reviews', reviewRoutes);             
+app.use('/api', reviewRoutes);             
 app.use('/api/notifications', notificationRoutes); 
 
 export default app;
